@@ -1,0 +1,54 @@
+name: 编译 hostname 插件
+
+on:
+  workflow_dispatch: # 手动触发
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    # 这里用于定义 GITHUB_TOKEN 的权限
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.GITHUB_REF }}
+
+      - name: 配置容器环境
+        id: buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 启动构建容器
+        run: |
+          docker run -d --name compile ghcr.io/azicen/l4d2server:latest tail -f /dev/null
+
+      - name: 拷贝需要编译的插件到容器
+        run: |
+          docker cp ./scripting/hostname.sp compile:/app/l4d2/left4dead2/addons/sourcemod/scripting/hostname.sp
+
+      - name: 编译插件
+        run: |
+          docker exec \
+            --user root \
+            -it \
+            compile \
+            bash -c "cd /app/l4d2/left4dead2/addons/sourcemod/scripting && ./compile.sh hostname.sp"
+
+      - name: 拷贝容器内编译完成的插件到宿主机
+        run: |
+          docker cp compile:/app/l4d2/left4dead2/addons/sourcemod/scripting/compiled ./compiled
+
+      - name: 上传构件
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-output
+          path: ./compiled/*.smx
+
+      - name: 停止并移除容器
+        run: |
+          docker stop compile
+          docker rm compile
